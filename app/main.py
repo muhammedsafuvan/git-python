@@ -41,6 +41,27 @@ def hash_object(file):
         print(sha, end="")
 
         
+def inspect_tree(sha: str):
+    path = f"./.git/objects/{sha[:2]}/{sha[2:]}"
+    with open(path, 'rb') as f:  # Open the file in binary mode
+        content = zlib.decompress(f.read())  #
+        content_str = content.decode('utf-8', errors='ignore')  # Decode with UTF-8 and ignore errors if any.
+
+        # Split by null character to isolate entries
+        entries = content_str.split('\0')
+
+        # Extract names from each entry
+        names = []
+        for entry in entries:
+            if ' ' in entry:  # Check if there is a space indicating mode and name
+                parts = entry.split(' ')
+                if len(parts) > 1 and parts[0] != 'tree':
+                    name = parts[-1]  # Name is the last part of the split
+                    names.append(name)
+
+        for name in names:
+            print(name)
+
 
 
     
@@ -65,6 +86,10 @@ def main():
         
         file = sys.argv[3]
         hash_object(file)
+
+    elif command == "ls-tree" and sys.argv[2] == "--name-only":
+        sha = sys.argv[3]
+        inspect_tree(sha)
 
     
 
