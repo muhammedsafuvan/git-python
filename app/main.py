@@ -2,6 +2,7 @@ import sys
 import os
 import zlib
 import hashlib 
+from pathlib import Path
 
 def init():
     os.mkdir(".git")
@@ -24,7 +25,7 @@ def cat_file(sha):
         message = content[null_byte_index + 1:].strip(b"\n")
         print(message.decode('utf-8'), end="")
 
-def hash_object(file):
+def hash_object(file, write=True):
     with open(file, 'rb') as f:
         content = f.read()
 
@@ -33,10 +34,12 @@ def hash_object(file):
 
 
         sha = hashlib.sha1(store).hexdigest()
-        git_path = os.path.join(os.getcwd(), ".git/objects")
-        os.mkdir(os.path.join(git_path, sha[0:2]))
-        with open(os.path.join(git_path, sha[0:2], sha[2:]), "wb") as file:
-            file.write(zlib.compress(store))
+        
+        if write:
+            git_path = os.path.join(os.getcwd(), ".git/objects")
+            os.mkdir(os.path.join(git_path, sha[0:2]))
+            with open(os.path.join(git_path, sha[0:2], sha[2:]), "wb") as file:
+                file.write(zlib.compress(store))
 
         print(sha, end="")
 
@@ -61,6 +64,58 @@ def inspect_tree(sha: str):
 
         for name in names:
             print(name)
+
+
+def write_tree(path: str):
+    if os.path.isfile(path):
+        return inspect_tree(path)
+    
+    contents = sorted(
+        os.listdir(path),
+        key=lambda x: x if os.path.isfile(os.path.join(path, x)) else f"{x}/",
+    )
+    s = ''
+    for item in contents:
+        if os.path.isfile(os.path.join(path, item)):
+            s += f"100644 {item}\0".encode()
+        else:
+            s += f"40000 {item}\0".encode()
+
+        sha1 = int.to_bytes(int(write_tree(os.path.join(path, item)), base=16), length=20, byteorder="big")
+        s += sha1
+
+    s = f"tree {len(s)}\0".encode() + s
+    sha1 = hashlib.sha1(s).hexdigest()
+    os.makedirs(f".git/objects/{sha1[:2]}", exist_ok=True)
+    with open(f".git/objects/{sha1[:2]}/{sha1[2:]}", "wb") as f:
+        f.write(zlib.compress(s))
+    return sha1
+
+def write_object(parent: Path, ty: str, content: bytes) -> str:
+    content = ty.encode() + b" " + f"{len(content)}".encode() + b"\0" + content
+    hash = hashlib.sha1(content, usedforsecurity=False).hexdigest()
+    compressed_content = zlib.compress(content)
+    pre = hash[:2]
+    post = hash[2:]
+    p = parent / ".git" / "objects" / pre / post
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(compressed_content)
+    return hash
+            
+def commit_tree(tree_sha, commit_sha, message):
+    contents = b"".join(
+        [
+            b"tree %b\n" % tree_sha.encode(),
+            b"parent %b\n" % commit_sha.encode(),
+            b"author ggzor <30713864+ggzor@users.noreply.github.com> 1714599041 -0600\n",
+            b"committer ggzor <30713864+ggzor@users.noreply.github.com> 1714599041 -0600\n\n",
+            message.encode(),
+            b"\n",
+        ]
+    )
+    hash = write_object(Path("."), "commit", contents)
+    print(hash)
+
 
 
 
@@ -91,7 +146,17 @@ def main():
         sha = sys.argv[3]
         inspect_tree(sha)
 
-    
+    elif command == "write-tree":
+        paths = "./"
+        write_tree(paths)
+
+    elif command == "commit-tree":
+        if sys.argv[3] == "-p":
+
+            tree_sha = sys.argv[2]
+            commit_sha = sys.argv[4]
+            msg = sys.argv[6]
+            commit_tree(tree_sha, commit_sha, msg)
 
     else:
         raise RuntimeError(f"Unknown command #{command}")
